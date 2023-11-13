@@ -1,5 +1,4 @@
-CDEFINE = -D PRINT_RESULT
-CFLAGS = -Wall -Wextra -O2 $(CDEFINE)
+CFLAGS = -Wall -Wextra -O2
 LDLIBS = -lm
 CC = gcc
 

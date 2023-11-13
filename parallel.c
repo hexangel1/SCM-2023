@@ -20,9 +20,11 @@
 #define GET_Yj(w, j) (w->a2 + (j) * w->step_y)
 
 static int openmp_threads_num = -1;
+static int save_result_iter = 0;
 static int grid_size_n = 40;
 static int grid_size_m = 40;
 static double delta_w_stop = 0.000001;
+static const char *output_file = NULL;
 
 typedef double (*grid_initializer)(double x, double y);
 
@@ -240,15 +242,21 @@ void debug_grid(struct grid_function *gf)
     }
 }
 
-void export_tsv(struct grid_function *gf)
+void export_tsv(struct grid_function *gf, const char *file)
 {
     size_t i, j, m = gf->size_m, n = gf->size_n;
+    FILE *fp = fopen(file, "w");
+    if (!fp) {
+        perror("export_tsv: fopen");
+        return;
+    }
     for (i = 0; i <= m; ++i) {
         for (j = 0; j <= n; ++j) {
             double x = GET_Xi(gf, i), y = GET_Yj(gf, j);
-            fprintf(stderr, "%lf\t%lf\t%lf\n", x, y, gf->grid[i][j]);
+            fprintf(fp, "%lf\t%lf\t%lf\n", x, y, gf->grid[i][j]);
         }
     }
+    fclose(fp);
 }
 
 struct diff_scheme *make_diff_scheme(double a1, double a2, double b1, double b2,
@@ -289,12 +297,20 @@ void free_diff_scheme(struct diff_scheme *ds)
     free(ds);
 }
 
+const char *get_checkpoint_file(unsigned long iteration_num)
+{
+    static char buff[128];
+    snprintf(buff, sizeof(buff), "ckpt_%ld.tsv", iteration_num);
+    return buff;
+}
+
 void run_scheme(double a1, double a2, double b1, double b2,
                 size_t m, size_t n, double delta_stop)
 {
     struct diff_scheme *ds = make_diff_scheme(a1, a2, b1, b2, m, n, delta_stop);
     struct grid_function *tmp;
     double sigma, iota, tau, delta;
+    unsigned long iteration_num = 0;
 
 #ifdef _OPENMP
     double start_time = omp_get_wtime();
@@ -311,14 +327,19 @@ void run_scheme(double a1, double a2, double b1, double b2,
         tmp = ds->w;
         ds->w = ds->w_next;
         ds->w_next = tmp;
+        if (save_result_iter && iteration_num % save_result_iter == 0)
+            export_tsv(ds->w, get_checkpoint_file(iteration_num));
+        if (iteration_num % 1000 == 0)
+            fprintf(stderr, "delta = %lf\n", delta);
+        ++iteration_num;
     } while (delta > ds->delta_stop);
 #ifdef _OPENMP
     fprintf(stderr, "time: %lf\n", omp_get_wtime() - start_time);
 #endif
+    fprintf(stderr, "iterations: %ld\n", iteration_num);
 
-#ifdef PRINT_RESULT
-    export_tsv(ds->w);
-#endif
+    if (output_file)
+        export_tsv(ds->w, output_file);
     free_diff_scheme(ds);
 }
 
@@ -327,13 +348,16 @@ int get_command_line_options(int argc, char **argv)
     int opt, retval = 0;
     extern char *optarg;
     extern int optopt;
-    while ((opt = getopt(argc, argv, ":hw:m:n:d:")) != -1) {
+    while ((opt = getopt(argc, argv, ":hw:c:m:n:d:f:")) != -1) {
         switch (opt) {
         case 'h':
             retval = -1;
             break;
         case 'w':
             openmp_threads_num = atoi(optarg);
+            break;
+        case 'c':
+            save_result_iter = atoi(optarg);
             break;
         case 'm':
             grid_size_m = atoi(optarg);
@@ -343,6 +367,9 @@ int get_command_line_options(int argc, char **argv)
             break;
         case 'd':
             delta_w_stop = atof(optarg);
+            break;
+        case 'f':
+            output_file = optarg;
             break;
         case ':':
             fprintf(stderr, "Opt -%c require an operand\n", optopt);
@@ -373,7 +400,8 @@ int get_num_threads(void)
 int main(int argc, char **argv)
 {
     int res;
-    const char *usage = "Usage: %s -w <threads> -m <M> -n <N> -d <delta>\n";
+    const char *usage =
+        "Usage: %s -w <threads> -m <M> -n <N> -d <delta> -f <filename>\n";
     res = get_command_line_options(argc, argv);
     if (res == -1) {
         fprintf(stderr, usage, argv[0]);
@@ -387,6 +415,7 @@ int main(int argc, char **argv)
 #else
     fprintf(stderr, "OpenMP not supported\n");
 #endif
+    assert(save_result_iter >= 0);
     assert(grid_size_m > 1 && grid_size_n > 1);
     assert(delta_w_stop > 0.0);
     fprintf(stderr, "M = %d, N = %d\n", grid_size_m, grid_size_n);
