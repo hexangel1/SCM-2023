@@ -21,6 +21,7 @@
 
 static int openmp_threads_num = -1;
 static int save_result_iter = 0;
+static int save_error_iter = 0;
 static int grid_size_n = 40;
 static int grid_size_m = 40;
 static double delta_w_stop = 0.000001;
@@ -88,6 +89,28 @@ double grid_norm(struct grid_function *gf)
 double grid_squared_norm(struct grid_function *gf)
 {
     return scalar_product(gf, gf);
+}
+
+double grid_max_norm(struct grid_function *gf, size_t *imax, size_t *jmax)
+{
+    double max_norm = 0.0;
+    size_t argi_max = 1, argj_max = 1;
+    size_t i, j, m = gf->size_m, n = gf->size_n;
+    for (i = 1; i < m; ++i) {
+        for (j = 1; j < n; ++j) {
+            double modulo = fabs(gf->grid[i][j]);
+            if (modulo > max_norm) {
+                max_norm = modulo;
+                argi_max = i;
+                argj_max = j;
+            }
+        }
+    }
+    if (imax)
+        *imax = argi_max;
+    if (jmax)
+        *jmax = argj_max;
+    return max_norm;
 }
 
 void linear_comb(struct grid_function *result, double c1, double c2,
@@ -297,6 +320,32 @@ void free_diff_scheme(struct diff_scheme *ds)
     free(ds);
 }
 
+void log_residual(struct grid_function *r, unsigned long iteration, int finish)
+{
+    static int not_initialized = 1;
+    static struct grid_function *max_r;
+    static FILE *l1_norm_log, *l2_norm_log;
+    size_t argi_max, argj_max;
+    double l1_norm, l2_norm;
+    if (not_initialized) {
+        max_r = make_grid(r->a1, r->a2, r->b1, r->b2, r->size_m, r->size_n);
+        l1_norm_log = fopen("err_norm_l1.tsv", "w");
+        l2_norm_log = fopen("err_norm_l2.tsv", "w");
+        not_initialized = 0;
+    }
+    l1_norm = grid_max_norm(r, &argi_max, &argj_max);
+    l2_norm = grid_norm(r);
+    fprintf(l1_norm_log, "%ld\t%lf\n", iteration, l1_norm);
+    fprintf(l2_norm_log, "%ld\t%lf\n", iteration, l2_norm);
+    max_r->grid[argi_max][argj_max]++;
+    if (finish && !not_initialized) {
+        export_tsv(max_r, "err_norm_l1_argmax.tsv");
+        fclose(l1_norm_log);
+        fclose(l2_norm_log);
+        free_grid(max_r);
+    }
+}
+
 const char *get_checkpoint_file(unsigned long iteration_num)
 {
     static char buff[128];
@@ -329,6 +378,8 @@ void run_scheme(double a1, double a2, double b1, double b2,
         ds->w_next = tmp;
         if (save_result_iter && iteration_num % save_result_iter == 0)
             export_tsv(ds->w, get_checkpoint_file(iteration_num));
+        if (save_error_iter && iteration_num % save_error_iter == 0)
+            log_residual(ds->r, iteration_num, 0);
         if (iteration_num % 1000 == 0)
             fprintf(stderr, "delta = %lf\n", delta);
         ++iteration_num;
@@ -340,6 +391,8 @@ void run_scheme(double a1, double a2, double b1, double b2,
 
     if (output_file)
         export_tsv(ds->w, output_file);
+    if (save_error_iter)
+        log_residual(ds->r, iteration_num, 1);
     free_diff_scheme(ds);
 }
 
@@ -348,7 +401,7 @@ int get_command_line_options(int argc, char **argv)
     int opt, retval = 0;
     extern char *optarg;
     extern int optopt;
-    while ((opt = getopt(argc, argv, ":hw:c:m:n:d:f:")) != -1) {
+    while ((opt = getopt(argc, argv, ":hw:c:e:m:n:d:f:")) != -1) {
         switch (opt) {
         case 'h':
             retval = -1;
@@ -358,6 +411,9 @@ int get_command_line_options(int argc, char **argv)
             break;
         case 'c':
             save_result_iter = atoi(optarg);
+            break;
+        case 'e':
+            save_error_iter = atoi(optarg);
             break;
         case 'm':
             grid_size_m = atoi(optarg);
@@ -415,7 +471,7 @@ int main(int argc, char **argv)
 #else
     fprintf(stderr, "OpenMP not supported\n");
 #endif
-    assert(save_result_iter >= 0);
+    assert(save_result_iter >= 0 && save_error_iter >= 0);
     assert(grid_size_m > 1 && grid_size_n > 1);
     assert(delta_w_stop > 0.0);
     fprintf(stderr, "M = %d, N = %d\n", grid_size_m, grid_size_n);
