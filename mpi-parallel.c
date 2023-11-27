@@ -211,11 +211,6 @@ double *make_grid(size_t m, size_t n)
     return grid;
 }
 
-void free_grid(double *grid)
-{
-    free(grid);
-}
-
 void init_grid(double *grid, grid_initializer grinit)
 {
     int i, j;
