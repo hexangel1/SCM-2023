@@ -17,7 +17,7 @@ sequential: sequential.c
 	$(CC) $(CFLAGS) -o $@ sequential.c $(LDLIBS)
 
 mpirun: mpi-parallel
-	mpiexec -n 2 ./mpi-parallel
+	mpiexec -n 4 ./mpi-parallel
 
 clean:
 	rm -f mpi-parallel parallel sequential *.o *.a *.bin deps.mk
