@@ -258,6 +258,7 @@ struct diff_scheme *make_diff_scheme(void)
 {
     struct diff_scheme *ds;
     ds = malloc(sizeof(*ds));
+
     ds->global_w = make_grid(grid_size_m, grid_size_n);
     ds->w = make_grid(local_grid_size_m, local_grid_size_n);
     ds->aw = make_grid(local_grid_size_m, local_grid_size_n);
@@ -316,9 +317,10 @@ void export_tsv(double *result, const char *file)
 
 void process_main(void)
 {
-    struct diff_scheme *ds = make_diff_scheme();
-    double *tmp, iota, delta, sigma, local_iota, local_delta, local_sigma, tau;
+    double delta, tau;
+    double *tmp, local_vars[3], global_vars[3];
     size_t size = grid_size_m * grid_size_n;
+    struct diff_scheme *ds = make_diff_scheme();
     unsigned long iteration_num = 0;
 
     MPI_Scatter(ds->global_b, domain_size, MPI_DOUBLE, ds->b, domain_size,
@@ -336,22 +338,16 @@ void process_main(void)
 
         apply_diff_operator(ds->ar, ds->global_r, ds->aij, ds->bij);
 
-        local_sigma = scalar_product(ds->ar, ds->r);
-        local_iota = grid_squared_norm(ds->ar);
-        local_delta = grid_squared_norm(ds->r);
+        local_vars[0] = scalar_product(ds->ar, ds->r);
+        local_vars[1] = grid_squared_norm(ds->ar);
+        local_vars[2] = grid_squared_norm(ds->r);
 
-        MPI_Allreduce(&local_sigma, &sigma, 1,
+        MPI_Allreduce(local_vars, global_vars, 3,
                       MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 
-        MPI_Allreduce(&local_iota, &iota, 1,
-                      MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+        delta = sqrt(global_vars[2]);
 
-        MPI_Allreduce(&local_delta, &delta, 1,
-                      MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-
-        delta = sqrt(delta);
-
-        tau = sigma / (iota + 0.000001);
+        tau = global_vars[0] / (global_vars[1] + 0.000001);
 
         linear_comb(ds->w_next, 1.0, -tau, ds->w, ds->r);
 
