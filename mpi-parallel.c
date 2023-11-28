@@ -34,13 +34,27 @@
 #define DOMAIN_IDX(i, j) \
     (DOMAIN_ID(i, j) * domain_size + LOCAL_IDX(LOCAL_i(i), LOCAL_j(j)))
 
-#define DER_XR(w, i, j) \
-    ((w[DOMAIN_IDX(i + 1, j)] - w[DOMAIN_IDX(i, j)]) / grid_step_x)
-#define DER_XL(w, i, j) DER_XR(w, i - 1, j)
+#define DER_XR(w, b, gi, gj, i, j) \
+    (((DOMAIN_ID(gi + 1, gj) == proc_id ? w[LOCAL_IDX(i + 1, j)] :\
+     b[(DOMAIN_ID(gi + 1, gj)) * local_grid_border_size +\
+     2 * local_grid_size_m + (j)]) - w[LOCAL_IDX(i, j)]) / grid_step_x)
 
-#define DER_YR(w, i, j) \
-    ((w[DOMAIN_IDX(i, j + 1)] - w[DOMAIN_IDX(i, j)]) / grid_step_y)
-#define DER_YL(w, i, j) DER_YR(w, i, j - 1)
+#define DER_XL(w, b, gi, gj, i, j) \
+    ((w[LOCAL_IDX(i, j)] -\
+    (DOMAIN_ID(gi - 1, gj) == proc_id ? w[LOCAL_IDX(i - 1, j)] :\
+     b[(DOMAIN_ID(gi - 1, gj)) * local_grid_border_size +\
+      local_grid_size_m * 2 + local_grid_size_n + (j)])) / grid_step_x)
+
+#define DER_YR(w, b, gi, gj, i, j) \
+    (((DOMAIN_ID(gi, gj + 1) == proc_id ? w[LOCAL_IDX(i, j + 1)] :\
+     b[(DOMAIN_ID(gi, gj + 1)) * local_grid_border_size + (i)]) -\
+      w[LOCAL_IDX(i, j)]) / grid_step_y)
+
+#define DER_YL(w, b, gi, gj, i, j) \
+    ((w[LOCAL_IDX(i, j)] -\
+    (DOMAIN_ID(gi, gj - 1) == proc_id ? w[LOCAL_IDX(i, j - 1)] :\
+     b[(DOMAIN_ID(gi, gj - 1)) * local_grid_border_size +\
+      local_grid_size_m + (i)])) / grid_step_y)
 
 #define GET_Xi(i) (point_a1 + (i) * grid_step_x)
 #define GET_Yj(j) (point_a2 + (j) * grid_step_y)
@@ -49,13 +63,14 @@ struct diff_scheme {
     double *w, *aw, *w_next;
     double *r, *ar, *b, *delta_w;
     double *aij, *bij;
-    double *global_b, *global_w, *global_r;
+    double *global_b, *global_w, *w_border, *r_border;
+    double *w_border_global, *r_border_global;
 };
 
 typedef double (*grid_initializer)(double x, double y);
 
-static const int grid_size_n = 40;
-static const int grid_size_m = 40;
+static const int grid_size_n = 80;
+static const int grid_size_m = 80;
 static const int grid_size = grid_size_n * grid_size_m;
 static const double delta_stop = 0.01;
 static const double point_a1 = -1.0;
@@ -72,6 +87,8 @@ static int proc_id, proc_number;
 
 static int local_grid_size_n;
 static int local_grid_size_m;
+static int local_grid_border_size;
+static int total_grid_border_size;
 static int x_domain_amount;
 static int y_domain_amount;
 static int domain_size;
@@ -89,6 +106,8 @@ void init_local_grid_sizes(void)
         turn = !turn;
         proc_count /= 2;
     }
+    local_grid_border_size = 2 * (local_grid_size_n + local_grid_size_m);
+    total_grid_border_size = local_grid_border_size * proc_number;
     x_domain_amount = grid_size_m / local_grid_size_m;
     y_domain_amount = grid_size_n / local_grid_size_n;
     domain_size = local_grid_size_m * local_grid_size_n;
@@ -221,13 +240,15 @@ void init_grid(double *grid, grid_initializer grinit)
     }
 }
 
-void apply_diff_operator(double *aw, double *w, double *aij, double *bij)
+void apply_diff_operator(double *aw, double *w, double *w_border,
+                         double *aij, double *bij)
 {
     double h1 = grid_step_x, h2 = grid_step_y;
     register int i, j;
     for (i = 0; i < local_grid_size_m; ++i) {
         for (j = 0; j < local_grid_size_n; ++j) {
             double a1, a2, b1, b2;
+            double der_xr, der_xl, der_yr, der_yl;
             int global_i = MY_GLOBAL_i(i), global_j = MY_GLOBAL_j(j);
             if (global_i == 0 || global_i == grid_size_m - 1 ||
                 global_j == 0 || global_j == grid_size_n - 1)
@@ -238,11 +259,14 @@ void apply_diff_operator(double *aw, double *w, double *aij, double *bij)
             b2 = bij[GLOBAL_IDX(global_i, global_j + 1)];
             b1 = bij[GLOBAL_IDX(global_i, global_j)];
 
+            der_xr = DER_XR(w, w_border, global_i, global_j, i, j);
+            der_xl = DER_XL(w, w_border, global_i, global_j, i, j);
+            der_yr = DER_YR(w, w_border, global_i, global_j, i, j);
+            der_yl = DER_YL(w, w_border, global_i, global_j, i, j);
+
             aw[LOCAL_IDX(i, j)] = -(
-                (a2 * DER_XR(w, global_i, global_j) -
-                 a1 * DER_XL(w, global_i, global_j)) / h1 +
-                (b2 * DER_YR(w, global_i, global_j) -
-                 b1 * DER_YL(w, global_i, global_j)) / h2
+                (a2 * der_xr - a1 * der_xl) / h1 +
+                (b2 * der_yr - b1 * der_yl) / h2
             );
         }
     }
@@ -253,11 +277,13 @@ struct diff_scheme *make_diff_scheme(void)
     struct diff_scheme *ds;
     ds = malloc(sizeof(*ds));
 
-    ds->global_w = make_grid(grid_size);
     ds->w = make_grid(domain_size);
     ds->aw = make_grid(domain_size);
     ds->w_next = make_grid(domain_size);
-    ds->global_r = make_grid(grid_size);
+    ds->r_border = make_grid(local_grid_border_size);
+    ds->w_border = make_grid(local_grid_border_size);
+    ds->r_border_global = make_grid(total_grid_border_size);
+    ds->w_border_global = make_grid(total_grid_border_size);
     ds->r = make_grid(domain_size);
     ds->ar = make_grid(domain_size);
 
@@ -266,8 +292,10 @@ struct diff_scheme *make_diff_scheme(void)
     ds->b = make_grid(domain_size);
 
     ds->global_b = NULL;
+    ds->global_w = NULL;
 IF_MASTER
     ds->global_b = make_grid(grid_size);
+    ds->global_w = make_grid(grid_size);
     init_grid(ds->global_b, ones_function);
     get_aij(ds->aij, epsilon);
     get_bij(ds->bij, epsilon);
@@ -281,8 +309,11 @@ void free_diff_scheme(struct diff_scheme *ds)
     free(ds->w);
     free(ds->aw);
     free(ds->w_next);
-    free(ds->global_r);
     free(ds->global_w);
+    free(ds->r_border);
+    free(ds->w_border);
+    free(ds->r_border_global);
+    free(ds->w_border_global);
     free(ds->global_b);
     free(ds->b);
     free(ds->r);
@@ -309,6 +340,22 @@ void export_tsv(double *result, const char *file)
     fclose(fp);
 }
 
+void get_grid_border(double *border, const double *grid)
+{
+    register int i, j, k = 0;
+    for (i = 0; i < local_grid_size_m; ++i, ++k)
+        border[k] = grid[LOCAL_IDX(i, 0)];
+
+    for (i = 0; i < local_grid_size_m; ++i, ++k)
+        border[k] = grid[LOCAL_IDX(i, local_grid_size_n - 1)];
+
+    for (j = 0; j < local_grid_size_n; ++j, ++k)
+        border[k] = grid[LOCAL_IDX(0, j)];
+
+    for (j = 0; j < local_grid_size_n; ++j, ++k)
+        border[k] = grid[LOCAL_IDX(local_grid_size_m - 1, j)];
+}
+
 void process_main(void)
 {
     double delta, tau;
@@ -324,12 +371,22 @@ void process_main(void)
 
     do {
 
-        apply_diff_operator(ds->aw, ds->global_w, ds->aij, ds->bij);
-        linear_comb(ds->r, 1.0, -1.0, ds->aw, ds->b);
-        MPI_Allgather(ds->r, domain_size, MPI_DOUBLE, ds->global_r, domain_size,
-                      MPI_DOUBLE, MPI_COMM_WORLD);
+        get_grid_border(ds->w_border, ds->w);
 
-        apply_diff_operator(ds->ar, ds->global_r, ds->aij, ds->bij);
+        MPI_Allgather(ds->w_border, local_grid_border_size, MPI_DOUBLE,
+                      ds->w_border_global, local_grid_border_size, MPI_DOUBLE,
+                      MPI_COMM_WORLD);
+
+        apply_diff_operator(ds->aw, ds->w, ds->w_border_global, ds->aij, ds->bij);
+        linear_comb(ds->r, 1.0, -1.0, ds->aw, ds->b);
+
+        get_grid_border(ds->r_border, ds->r);
+
+        MPI_Allgather(ds->r_border, local_grid_border_size, MPI_DOUBLE,
+                      ds->r_border_global, local_grid_border_size, MPI_DOUBLE,
+                      MPI_COMM_WORLD);
+
+        apply_diff_operator(ds->ar, ds->r, ds->r_border_global, ds->aij, ds->bij);
 
         local_vars[0] = scalar_product(ds->ar, ds->r);
         local_vars[1] = grid_squared_norm(ds->ar);
@@ -344,19 +401,19 @@ void process_main(void)
 
         linear_comb(ds->w_next, 1.0, -tau, ds->w, ds->r);
 
-        MPI_Allgather(ds->w_next, domain_size, MPI_DOUBLE, ds->global_w,
-                      domain_size, MPI_DOUBLE, MPI_COMM_WORLD);
-
         tmp = ds->w;
         ds->w = ds->w_next;
         ds->w_next = tmp;
 
 IF_MASTER
-        if (iteration_num % 1000 == 0)
+        if (iteration_num % 10000 == 0)
             LOGMSG("delta = %lf\n", delta);
         ++iteration_num;
 FI_MASTER
     } while (delta > delta_stop);
+
+    MPI_Gather(ds->w, domain_size, MPI_DOUBLE, ds->global_w,
+               domain_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
 IF_MASTER
     export_tsv(ds->global_w, "result.tsv");
