@@ -11,7 +11,7 @@
         fprintf(stderr, "worker[%d]: " msg, proc_id, ##__VA_ARGS__);\
     } while(0)
 
-#define IS_POWER_OF_2(n) (n && !(n & (n - 1)))
+#define IS_POWER_OF_2(n) ((n) && !((n) & ((n) - 1)))
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 
@@ -27,7 +27,7 @@
 #define MY_GLOBAL_j(j) GLOBAL_j(j, proc_id)
 
 #define DOMAIN_ID(i, j) \
-    (((i) / local_grid_size_m) * (y_domain_amount) + (j) / local_grid_size_n)
+    (((i) / local_grid_size_m) * y_domain_amount + (j) / local_grid_size_n)
 
 #define LOCAL_IDX(i, j) ((i) * local_grid_size_n + (j))
 #define GLOBAL_IDX(i, j) ((i) * grid_size_n + (j))
@@ -50,24 +50,26 @@ struct diff_scheme {
     double *r, *ar, *b, *delta_w;
     double *aij, *bij;
     double *global_b, *global_w, *global_r;
-    double delta_stop;
 };
 
 typedef double (*grid_initializer)(double x, double y);
 
 static const int grid_size_n = 40;
 static const int grid_size_m = 40;
+static const int grid_size = grid_size_n * grid_size_m;
 static const double delta_stop = 0.01;
 static const double point_a1 = -1.0;
 static const double point_b1 = 1.0;
 static const double point_a2 = -0.5;
 static const double point_b2 = 0.5;
+
 static const double grid_step_x = (point_b1 - point_a1) / (grid_size_m - 1);
 static const double grid_step_y = (point_b2 - point_a2) / (grid_size_n - 1);
 static const double grid_step_max = MAX(grid_step_x, grid_step_y);
 static const double epsilon = grid_step_max * grid_step_max;
 
 static int proc_id, proc_number;
+
 static int local_grid_size_n;
 static int local_grid_size_m;
 static int x_domain_amount;
@@ -118,13 +120,13 @@ double scalar_product(double *grid1, double *grid2)
 {
     double result = 0.0;
     double weight = grid_step_x * grid_step_y;
-    int i, j;
+    register int i, j;
     for (i = 0; i < local_grid_size_m; ++i) {
         for (j = 0; j < local_grid_size_n; ++j) {
-            result += weight * grid1[LOCAL_IDX(i, j)] * grid2[LOCAL_IDX(i, j)];
+            result += grid1[LOCAL_IDX(i, j)] * grid2[LOCAL_IDX(i, j)];
         }
     }
-    return result;
+    return result * weight;
 }
 
 double grid_norm(double *grid)
@@ -140,7 +142,7 @@ double grid_squared_norm(double *grid)
 void linear_comb(double *result, double c1, double c2,
                  double *grid1, double *grid2)
 {
-    int i, j;
+    register int i, j;
     for (i = 0; i < local_grid_size_m; ++i) {
         for (j = 0; j < local_grid_size_n; ++j) {
             result[LOCAL_IDX(i, j)] = c1 * grid1[LOCAL_IDX(i, j)] +
@@ -175,7 +177,7 @@ void get_aij(double *result, double eps)
 {
     double h1 = grid_step_x, h2 = grid_step_y;
     double inv_h2 = 1 / h2;
-    int i, j;
+    register int i, j;
     for (i = 1; i < grid_size_m ; ++i) {
         for (j = 1; j < grid_size_n; ++j) {
             double x = GET_Xi(i), y = GET_Yj(j);
@@ -189,7 +191,7 @@ void get_bij(double *result, double eps)
 {
     double h1 = grid_step_x, h2 = grid_step_y;
     double inv_h1 = 1 / h1;
-    int i, j;
+    register int i, j;
     for (i = 1; i < grid_size_m; ++i) {
         for (j = 1; j < grid_size_n; ++j) {
             double x = GET_Xi(i), y = GET_Yj(j);
@@ -199,21 +201,18 @@ void get_bij(double *result, double eps)
     }
 }
 
-double *make_grid(size_t m, size_t n)
+double *make_grid(size_t size)
 {
-    size_t i, j;
-    double *grid = malloc(sizeof(double) * n * m);
-    for (i = 0; i < m; ++i) {
-        for (j = 0; j < n; ++j) {
-            grid[i * n + j] = 0.0;
-        }
-    }
+    register size_t i;
+    double *grid = malloc(size * sizeof(double));
+    for (i = 0; i < size; ++i)
+        grid[i] = 0.0;
     return grid;
 }
 
 void init_grid(double *grid, grid_initializer grinit)
 {
-    int i, j;
+    register int i, j;
     for (i = 0; i < grid_size_m; ++i) {
         for (j = 0; j < grid_size_n; ++j) {
             double x = GET_Xi(i), y = GET_Yj(j);
@@ -225,7 +224,7 @@ void init_grid(double *grid, grid_initializer grinit)
 void apply_diff_operator(double *aw, double *w, double *aij, double *bij)
 {
     double h1 = grid_step_x, h2 = grid_step_y;
-    int i, j;
+    register int i, j;
     for (i = 0; i < local_grid_size_m; ++i) {
         for (j = 0; j < local_grid_size_n; ++j) {
             double a1, a2, b1, b2;
@@ -254,21 +253,21 @@ struct diff_scheme *make_diff_scheme(void)
     struct diff_scheme *ds;
     ds = malloc(sizeof(*ds));
 
-    ds->global_w = make_grid(grid_size_m, grid_size_n);
-    ds->w = make_grid(local_grid_size_m, local_grid_size_n);
-    ds->aw = make_grid(local_grid_size_m, local_grid_size_n);
-    ds->w_next = make_grid(local_grid_size_m, local_grid_size_n);
-    ds->global_r = make_grid(grid_size_m, grid_size_n);
-    ds->r = make_grid(local_grid_size_m, local_grid_size_n);
-    ds->ar = make_grid(local_grid_size_m, local_grid_size_n);
+    ds->global_w = make_grid(grid_size);
+    ds->w = make_grid(domain_size);
+    ds->aw = make_grid(domain_size);
+    ds->w_next = make_grid(domain_size);
+    ds->global_r = make_grid(grid_size);
+    ds->r = make_grid(domain_size);
+    ds->ar = make_grid(domain_size);
 
-    ds->aij = make_grid(grid_size_m, grid_size_n);
-    ds->bij = make_grid(grid_size_m, grid_size_n);
-    ds->b = make_grid(local_grid_size_m, local_grid_size_n);
+    ds->aij = make_grid(grid_size);
+    ds->bij = make_grid(grid_size);
+    ds->b = make_grid(domain_size);
 
     ds->global_b = NULL;
 IF_MASTER
-    ds->global_b = make_grid(grid_size_m, grid_size_n);
+    ds->global_b = make_grid(grid_size);
     init_grid(ds->global_b, ones_function);
     get_aij(ds->aij, epsilon);
     get_bij(ds->bij, epsilon);
@@ -295,7 +294,7 @@ void free_diff_scheme(struct diff_scheme *ds)
 
 void export_tsv(double *result, const char *file)
 {
-    int i, j;
+    register int i, j;
     FILE *fp = fopen(file, "w");
     if (!fp) {
         perror("export_tsv: fopen");
@@ -314,15 +313,14 @@ void process_main(void)
 {
     double delta, tau;
     double *tmp, local_vars[3], global_vars[3];
-    size_t size = grid_size_m * grid_size_n;
-    struct diff_scheme *ds = make_diff_scheme();
     unsigned long iteration_num = 0;
+    struct diff_scheme *ds = make_diff_scheme();
 
     MPI_Scatter(ds->global_b, domain_size, MPI_DOUBLE, ds->b, domain_size,
                 MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
-    MPI_Bcast(ds->aij, size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-    MPI_Bcast(ds->bij, size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Bcast(ds->aij, grid_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Bcast(ds->bij, grid_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
     do {
 
