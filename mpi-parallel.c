@@ -69,19 +69,13 @@ struct diff_scheme {
 
 typedef double (*grid_initializer)(double x, double y);
 
-static const int grid_size_n = 80;
-static const int grid_size_m = 80;
-static const int grid_size = grid_size_n * grid_size_m;
-static const double delta_stop = 0.01;
+static const int grid_size_n = 40;
+static const int grid_size_m = 40;
 static const double point_a1 = -1.0;
 static const double point_b1 = 1.0;
 static const double point_a2 = -0.5;
 static const double point_b2 = 0.5;
-
-static const double grid_step_x = (point_b1 - point_a1) / (grid_size_m - 1);
-static const double grid_step_y = (point_b2 - point_a2) / (grid_size_n - 1);
-static const double grid_step_max = MAX(grid_step_x, grid_step_y);
-static const double epsilon = grid_step_max * grid_step_max;
+static const double delta_stop = 0.01;
 
 static int proc_id, proc_number;
 
@@ -92,6 +86,11 @@ static int total_grid_border_size;
 static int x_domain_amount;
 static int y_domain_amount;
 static int domain_size;
+
+static int grid_size;
+static double grid_step_x;
+static double grid_step_y;
+static double epsilon;
 
 void init_local_grid_sizes(void)
 {
@@ -111,6 +110,17 @@ void init_local_grid_sizes(void)
     x_domain_amount = grid_size_m / local_grid_size_m;
     y_domain_amount = grid_size_n / local_grid_size_n;
     domain_size = local_grid_size_m * local_grid_size_n;
+}
+
+void set_global_constants(void)
+{
+    double h_max;
+    grid_size = grid_size_n * grid_size_m;
+    grid_step_x = (point_b1 - point_a1) / (grid_size_m - 1);
+    grid_step_y = (point_b2 - point_a2) / (grid_size_n - 1);
+    h_max = MAX(grid_step_x, grid_step_y);
+    epsilon = h_max * h_max;
+    init_local_grid_sizes();
 }
 
 int inside_ellipse(double x, double y)
@@ -434,7 +444,7 @@ IF_MASTER
         MPI_Abort(MPI_COMM_WORLD, 1);
     }
 FI_MASTER
-    init_local_grid_sizes();
+    set_global_constants();
 IF_MASTER
     LOGMSG("Running on %d processes\n", proc_number);
     LOGMSG("Local grid sizes = (%d, %d)\n",
