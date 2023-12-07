@@ -357,18 +357,21 @@ void export_tsv(double *result, const char *file)
 
 void get_grid_border(double *border, const double *grid)
 {
-    register int i, j, k = 0;
-    for (i = 0; i < local_grid_size_m; ++i, ++k)
-        border[k] = grid[LOCAL_IDX(i, 0)];
+    register int i, j;
+    const int shift1 = local_grid_size_m;
+    const int shift2 = shift1 + local_grid_size_m;
+    const int shift3 = shift2 + local_grid_size_n;
 
-    for (i = 0; i < local_grid_size_m; ++i, ++k)
-        border[k] = grid[LOCAL_IDX(i, local_grid_size_n - 1)];
+    for (i = 0; i < local_grid_size_m; ++i) {
+        border[i] = grid[LOCAL_IDX(i, 0)];
+        border[shift1 + i] = grid[LOCAL_IDX(i, local_grid_size_n - 1)];
+    }
 
-    for (j = 0; j < local_grid_size_n; ++j, ++k)
-        border[k] = grid[LOCAL_IDX(0, j)];
+    for (j = 0; j < local_grid_size_n; ++j) {
+        border[shift2 + j] = grid[LOCAL_IDX(0, j)];
+        border[shift3 + j] = grid[LOCAL_IDX(local_grid_size_m - 1, j)];
+    }
 
-    for (j = 0; j < local_grid_size_n; ++j, ++k)
-        border[k] = grid[LOCAL_IDX(local_grid_size_m - 1, j)];
 }
 
 void process_main(void)
