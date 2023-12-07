@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include <math.h>
 #include <mpi.h>
 
@@ -14,6 +15,11 @@
 #define IS_POWER_OF_2(n) ((n) && !((n) & ((n) - 1)))
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
+
+#define POINT_A1  (-1.0)
+#define POINT_B1  (1.0)
+#define POINT_A2  (-0.5)
+#define POINT_B2  (0.5)
 
 #define LOCAL_i(i) ((i) % local_grid_size_m)
 #define LOCAL_j(j) ((j) % local_grid_size_n)
@@ -56,8 +62,8 @@
      b[(DOMAIN_ID(gi, gj - 1)) * local_grid_border_size +\
       local_grid_size_m + (i)])) / grid_step_y)
 
-#define GET_Xi(i) (point_a1 + (i) * grid_step_x)
-#define GET_Yj(j) (point_a2 + (j) * grid_step_y)
+#define GET_Xi(i) (POINT_A1 + (i) * grid_step_x)
+#define GET_Yj(j) (POINT_A2 + (j) * grid_step_y)
 
 struct diff_scheme {
     double *w, *aw, *w_next;
@@ -69,16 +75,16 @@ struct diff_scheme {
 
 typedef double (*grid_initializer)(double x, double y);
 
-static const int grid_size_n = 40;
-static const int grid_size_m = 40;
-static const double point_a1 = -1.0;
-static const double point_b1 = 1.0;
-static const double point_a2 = -0.5;
-static const double point_b2 = 0.5;
-static const double delta_stop = 0.01;
-
+/* set constants by mpi */
 static int proc_id, proc_number;
 
+/* set constants by get_command_line_options from argv */
+static int grid_size_n = 40;
+static int grid_size_m = 40;
+static double delta_stop = 0.01;
+static const char *output_file = NULL;
+
+/* set constants by set_global_constants in dependence of other */
 static int local_grid_size_n;
 static int local_grid_size_m;
 static int local_grid_border_size;
@@ -86,7 +92,6 @@ static int total_grid_border_size;
 static int x_domain_amount;
 static int y_domain_amount;
 static int domain_size;
-
 static int grid_size;
 static double grid_step_x;
 static double grid_step_y;
@@ -116,8 +121,8 @@ void set_global_constants(void)
 {
     double h_max;
     grid_size = grid_size_n * grid_size_m;
-    grid_step_x = (point_b1 - point_a1) / (grid_size_m - 1);
-    grid_step_y = (point_b2 - point_a2) / (grid_size_n - 1);
+    grid_step_x = (POINT_B1 - POINT_A1) / (grid_size_m - 1);
+    grid_step_y = (POINT_B2 - POINT_A2) / (grid_size_n - 1);
     h_max = MAX(grid_step_x, grid_step_y);
     epsilon = h_max * h_max;
     init_local_grid_sizes();
@@ -426,14 +431,59 @@ FI_MASTER
                domain_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
 IF_MASTER
-    export_tsv(ds->global_w, "result.tsv");
+    if (output_file)
+        export_tsv(ds->global_w, output_file);
 FI_MASTER
     free_diff_scheme(ds);
+}
+
+int get_command_line_options(int argc, char **argv)
+{
+    int opt, retval = 0;
+    extern char *optarg;
+    extern int optopt;
+    while ((opt = getopt(argc, argv, ":hm:n:d:f:")) != -1) {
+        switch (opt) {
+        case 'h':
+            retval = -1;
+            break;
+        case 'm':
+            grid_size_m = atoi(optarg);
+            break;
+        case 'n':
+            grid_size_n = atoi(optarg);
+            break;
+        case 'd':
+            delta_stop = atof(optarg);
+            break;
+        case 'f':
+            output_file = optarg;
+            break;
+        case ':':
+            fprintf(stderr, "Opt -%c require an operand\n", optopt);
+            retval = -1;
+            break;
+        case '?':
+            fprintf(stderr, "Unrecognized option: -%c\n", optopt);
+            retval = -1;
+            break;
+        }
+    }
+    return retval;
 }
 
 int main(int argc, char **argv)
 {
     double start_time = 0.0;
+    int res;
+    const char *usage =
+        "Usage: %s -m <M> -n <N> -d <delta> -f <filename>\n";
+    res = get_command_line_options(argc, argv);
+    if (res == -1) {
+        fprintf(stderr, usage, argv[0]);
+        exit(1);
+    }
+
     MPI_Init(&argc, &argv);
     MPI_Comm_size(MPI_COMM_WORLD, &proc_number);
     MPI_Comm_rank(MPI_COMM_WORLD, &proc_id);
