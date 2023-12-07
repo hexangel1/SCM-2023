@@ -5,7 +5,10 @@ MPICC = mpicc
 
 .PHONY: all
 
-all: mpi-parallel parallel sequential
+all: mpi-omp-parallel mpi-parallel parallel sequential
+
+mpi-omp-parallel: mpi-omp-parallel.c
+	$(MPICC) $(CFLAGS) -fopenmp -o $@ mpi-omp-parallel.c $(LDLIBS)
 
 mpi-parallel: mpi-parallel.c
 	$(MPICC) $(CFLAGS) -o $@ mpi-parallel.c $(LDLIBS)
@@ -20,4 +23,4 @@ mpirun: mpi-parallel
 	mpiexec -n 4 ./mpi-parallel
 
 clean:
-	rm -f mpi-parallel parallel sequential *.o *.a *.bin deps.mk
+	rm -f mpi-omp-parallel mpi-parallel parallel sequential *.o *.a deps.mk
