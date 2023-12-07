@@ -2,6 +2,7 @@ CFLAGS = -Wall -Wextra -O2
 LDLIBS = -lm
 CC = gcc
 MPICC = mpicc
+LATEX_COMPILE = pdflatex
 
 .PHONY: all
 
@@ -18,6 +19,9 @@ parallel: parallel.c
 
 sequential: sequential.c
 	$(CC) $(CFLAGS) -o $@ sequential.c $(LDLIBS)
+
+report.pdf: latex/report.tex
+	cd latex && $(LATEX_COMPILE) report.tex && mv report.pdf ./../
 
 mpirun: mpi-parallel
 	mpiexec -n 4 ./mpi-parallel

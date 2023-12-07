@@ -56,7 +56,6 @@ dkms.conf
 *.aux
 *.log
 *.toc
-latex/report.pdf
 mpi-omp-parallel
 mpi-parallel
 parallel
