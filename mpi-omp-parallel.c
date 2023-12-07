@@ -156,6 +156,7 @@ double scalar_product(double *grid1, double *grid2)
     double result = 0.0;
     double weight = grid_step_x * grid_step_y;
     register int i, j;
+#pragma omp parallel for collapse(2) reduction(+:result)
     for (i = 0; i < local_grid_size_m; ++i) {
         for (j = 0; j < local_grid_size_n; ++j) {
             result += grid1[LOCAL_IDX(i, j)] * grid2[LOCAL_IDX(i, j)];
@@ -178,6 +179,7 @@ void linear_comb(double *result, double c1, double c2,
                  double *grid1, double *grid2)
 {
     register int i, j;
+#pragma omp parallel for collapse(2)
     for (i = 0; i < local_grid_size_m; ++i) {
         for (j = 0; j < local_grid_size_n; ++j) {
             result[LOCAL_IDX(i, j)] = c1 * grid1[LOCAL_IDX(i, j)] +
@@ -213,6 +215,7 @@ void get_aij(double *result, double eps)
     double h1 = grid_step_x, h2 = grid_step_y;
     double inv_h2 = 1 / h2;
     register int i, j;
+#pragma omp parallel for collapse(2)
     for (i = 1; i < grid_size_m ; ++i) {
         for (j = 1; j < grid_size_n; ++j) {
             double x = GET_Xi(i), y = GET_Yj(j);
@@ -227,6 +230,7 @@ void get_bij(double *result, double eps)
     double h1 = grid_step_x, h2 = grid_step_y;
     double inv_h1 = 1 / h1;
     register int i, j;
+#pragma omp parallel for collapse(2)
     for (i = 1; i < grid_size_m; ++i) {
         for (j = 1; j < grid_size_n; ++j) {
             double x = GET_Xi(i), y = GET_Yj(j);
@@ -248,6 +252,7 @@ double *make_grid(size_t size)
 void init_grid(double *grid, grid_initializer grinit)
 {
     register int i, j;
+#pragma omp parallel for collapse(2)
     for (i = 0; i < grid_size_m; ++i) {
         for (j = 0; j < grid_size_n; ++j) {
             double x = GET_Xi(i), y = GET_Yj(j);
@@ -261,6 +266,7 @@ void apply_diff_operator(double *aw, double *w, double *w_border,
 {
     double h1 = grid_step_x, h2 = grid_step_y;
     register int i, j;
+#pragma omp parallel for collapse(2)
     for (i = 0; i < local_grid_size_m; ++i) {
         for (j = 0; j < local_grid_size_n; ++j) {
             double a1, a2, b1, b2;
@@ -363,11 +369,13 @@ void get_grid_border(double *border, const double *grid)
     const int shift2 = shift1 + local_grid_size_m;
     const int shift3 = shift2 + local_grid_size_n;
 
+#pragma omp parallel for
     for (i = 0; i < local_grid_size_m; ++i) {
         border[i] = grid[LOCAL_IDX(i, 0)];
         border[shift1 + i] = grid[LOCAL_IDX(i, local_grid_size_n - 1)];
     }
 
+#pragma omp parallel for
     for (j = 0; j < local_grid_size_n; ++j) {
         border[shift2 + j] = grid[LOCAL_IDX(0, j)];
         border[shift3 + j] = grid[LOCAL_IDX(local_grid_size_m - 1, j)];
@@ -476,6 +484,19 @@ int get_command_line_options(int argc, char **argv)
     return retval;
 }
 
+int get_num_threads(void)
+{
+    int num_threads = 1;
+#ifdef _OPENMP
+    #pragma omp parallel
+    {
+        #pragma omp single
+        num_threads = omp_get_num_threads();
+    }
+#endif
+    return num_threads;
+}
+
 int main(int argc, char **argv)
 {
     double start_time = 0.0;
@@ -500,7 +521,8 @@ IF_MASTER
 FI_MASTER
     set_global_constants();
 IF_MASTER
-    LOGMSG("Running on %d processes\n", proc_number);
+    LOGMSG("Running on %d processes, %d threads\n",
+           proc_number, get_num_threads());
     LOGMSG("Local grid sizes = (%d, %d)\n",
             local_grid_size_m, local_grid_size_n);
     start_time = MPI_Wtime();
