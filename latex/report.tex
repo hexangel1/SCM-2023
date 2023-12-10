@@ -300,24 +300,27 @@ init\_local\_grid\_sizes, в зависимости от числа процес
 Число процессов MPI & Число точек сетки \(M \times N\) &
 Время решения & Ускорение \\
 \hline
-1 & 40 \(\times\) 40 & 0 & 0 \\
-2 & 40 \(\times\) 40 & 0 & 0 \\
-4 & 40 \(\times\) 40 & 0 & 0 \\
+1 & 40 \(\times\) 40 & 120.125 & 0.989 \\
+2 & 40 \(\times\) 40 & 65.090  & 1.826 \\
+4 & 40 \(\times\) 40 & 41.076  & 2.894 \\
+8 & 40 \(\times\) 40 & 30.485  & 3.899 \\
 \hline
-1 & 80 \(\times\) 80 & 0 & 0 \\
-2 & 80 \(\times\) 80 & 0 & 0 \\
-4 & 80 \(\times\) 80 & 0 & 0 \\
+1 & 80 \(\times\) 80 & 590.532 & 0.912 \\
+2 & 80 \(\times\) 80 & 296.036 & 1.819 \\
+4 & 80 \(\times\) 80 & 166.240 & 3.240 \\
+8 & 80 \(\times\) 80 & 101.185 & 5.324 \\
 \hline
-1 & 160 \(\times\) 160 & 0 & 0 \\
-2 & 160 \(\times\) 160 & 0 & 0 \\
-4 & 160 \(\times\) 160 & 0 & 0 \\
+1 & 160 \(\times\) 160 & 610.347 & 0.888 \\
+2 & 160 \(\times\) 160 & 313.990 & 1.727 \\
+4 & 160 \(\times\) 160 & 166.844 & 3.250 \\
+8 & 160 \(\times\) 160 & 90.240  & 6.009 \\
 \hline
 \end{tabular}
 \caption{Результаты для программы MPI}
 \label{tab3}
 \end{table}
 
-\begin{table}[h]
+\begin{table}[h!]
 \begin{tabular}{|c|c|c|c|c|}
 \hline
 Число процессов MPI & Число OpenMP-нитей & Сетка & Время & Ускорение \\
@@ -349,11 +352,17 @@ init\_local\_grid\_sizes, в зависимости от числа процес
 
 \newpage
 \subsection{Графики ускорений}
+\begin{figure}[ht!]
+  \centering
+  \includegraphics[width=0.8\textwidth]{picture5}
+  \caption{Зависимость ускорения от числа OpenMP потоков для разных сеток}
+\end{figure}
 \begin{figure}[h!]
   \centering
-  \includegraphics[width=0.85\textwidth]{picture5}
-  \caption{Зависимость ускорения от числа потоков для разных для сеток}
+  \includegraphics[width=0.8\textwidth]{picture10}
+  \caption{Зависимость ускорения от числа MPI процессов для разных сеток}
 \end{figure}
+
 
 \newpage
 \subsection{Графики нормы невязки}
@@ -406,7 +415,7 @@ init\_local\_grid\_sizes, в зависимости от числа процес
 
 \newpage
 \noindent
-\begin{figure}[h!]
+\begin{figure}[ht!]
   \centering
   \includegraphics[width=1.0\textwidth]{picture3}
   \caption{График решения c сеткой \( 80 \times 80 \) точек}
